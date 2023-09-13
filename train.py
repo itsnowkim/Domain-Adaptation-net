@@ -80,8 +80,11 @@ if __name__ == "__main__":
         ]
     )
 
-    dataset = CustomDataset(csv_file='./train_source.csv', transform=transform)
+    dataset = CustomDataset(csv_file='./open/train_source.csv', transform=transform)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+
+    validation_dataset = CustomDataset(csv_file='./open/val_source.csv', transform=transform)
+    validation_dataloader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
 
     # model 초기화
     model = UNet().to(device)
@@ -101,7 +104,6 @@ if __name__ == "__main__":
         model.train()
 
 
-
     # training start
     for epoch in range(start, total_epoch):  # 20 에폭 동안 학습합니다.
         model.train()
@@ -119,14 +121,32 @@ if __name__ == "__main__":
             epoch_loss += loss.item()
 
         # log
-        writer.add_scalar("Loss/train", loss, epoch)
+        writer.add_scalar("Loss/train", epoch_loss / len(dataloader), epoch)
+        
+        # validation
+        model.eval()
+        val_loss = 0
+        with torch.no_grad():  # 이 부분을 추가하여 가중치 업데이트를 방지합니다.
+            for images, masks in tqdm(validation_dataloader):
+                images = images.float().to(device)
+                masks = masks.long().to(device)
 
-        # save ckpt
+                outputs = model(images)
+                loss = criterion(outputs, masks.squeeze(1))
+
+                val_loss += loss.item()
+        # log
+        writer.add_scalar("Loss/val", val_loss / len(validation_dataloader), epoch)
+
+        # save model
         torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': loss,
-                }, f'./model_epoch{epoch}.pt')
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'train_loss': epoch_loss,
+            'val_loss': val_loss,
+        }, f'./ckpt/model_epoch{epoch}.pt')
 
+        # print
         print(f'Epoch {epoch+1}, Loss: {epoch_loss/len(dataloader)}')
+        print(f'Epoch {epoch+1}, Val_Loss: {val_loss/len(validation_dataloader)}')
